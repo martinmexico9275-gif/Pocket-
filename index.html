@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Pockets — Daily Budget</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#10151a">
+
+<!-- iOS install support -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pockets">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="wordmark">Pocket<span>s</span></div>
+    <div class="month" id="monthLabel">—</div>
+  </div>
+
+  <div class="warning-banner" id="warningBanner">
+    ⚠️ <span id="warningText">Your daily allowance is running low.</span>
+  </div>
+
+  <!-- ===================== HOME ===================== -->
+  <section class="view active" id="view-home">
+
+    <div class="dial-card">
+      <div class="dial-wrap">
+        <svg viewBox="0 0 220 220">
+          <circle class="dial-track" cx="110" cy="110" r="94" pathLength="100" stroke-dasharray="75 100" stroke-dashoffset="0" transform="rotate(148 110 110)"></circle>
+          <circle class="dial-fill" id="dialFill" cx="110" cy="110" r="94" pathLength="100" stroke-dasharray="75 100" stroke-dashoffset="75" transform="rotate(148 110 110)"></circle>
+        </svg>
+        <div class="dial-center">
+          <div class="amount" id="dialAmount">£0.00</div>
+          <div class="label">left today</div>
+        </div>
+      </div>
+      <div class="dial-sub" id="dialSub">— days left this month</div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card income">
+        <div class="stat-label">Income</div>
+        <div class="stat-value" id="statIncome">£0.00</div>
+      </div>
+      <div class="stat-card spent">
+        <div class="stat-label">Spent</div>
+        <div class="stat-value" id="statSpent">£0.00</div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h2>Recent activity</h2>
+    </div>
+    <ul class="tx-list" id="txList"></ul>
+  </section>
+
+  <!-- ===================== GOALS ===================== -->
+  <section class="view" id="view-goals">
+    <div class="section-head" style="margin-top:4px;">
+      <h2>Savings goals</h2>
+      <button class="btn btn-secondary btn-sm" id="newGoalBtn">+ New</button>
+    </div>
+    <div id="goalsList"></div>
+    <div class="empty-state" id="goalsEmpty">No goals yet. Add one to start setting money aside.</div>
+  </section>
+
+  <!-- ===================== SETTINGS ===================== -->
+  <section class="view" id="view-settings">
+    <div class="section-head" style="margin-top:4px;"><h2>Monthly budget</h2></div>
+
+    <label for="currencyInput">Currency symbol</label>
+    <input type="text" id="currencyInput" maxlength="3" placeholder="£">
+
+    <label for="incomeInput">Monthly income</label>
+    <input type="number" id="incomeInput" inputmode="decimal" placeholder="0.00">
+
+    <label for="startDay">Budget month starts on day</label>
+    <select id="startDay"></select>
+
+    <div class="section-head"><h2>Alerts</h2></div>
+    <div class="toggle-row">
+      <div>
+        <div class="t-label">Low-money warning</div>
+        <div class="t-sub">Banner shows when today's allowance drops below your threshold</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="warnToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <label for="warnThreshold">Warn me when daily allowance falls below</label>
+    <input type="number" id="warnThreshold" inputmode="decimal" placeholder="5.00">
+
+    <div class="section-head"><h2>Data</h2></div>
+    <button class="btn btn-secondary btn-block" id="exportBtn">Export data (.json)</button>
+    <div style="height:10px;"></div>
+    <button class="btn btn-ghost btn-block" id="resetBtn">Erase all data on this device</button>
+
+    <p class="empty-state" style="text-align:left; padding:20px 2px;">
+      Everything is stored only in this browser on this device — nothing is sent anywhere.
+    </p>
+  </section>
+
+</div>
+
+<!-- ===================== ADD TRANSACTION FAB + SHEET ===================== -->
+<button class="btn-fab" id="fabAdd" aria-label="Add transaction">＋</button>
+
+<div class="sheet-backdrop" id="txBackdrop">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3>Add transaction</h3>
+    <div class="seg">
+      <button type="button" class="active expense" id="segExpense">Spending</button>
+      <button type="button" class="income" id="segIncome">Income</button>
+    </div>
+    <label for="txAmount">Amount</label>
+    <input type="number" id="txAmount" inputmode="decimal" placeholder="0.00" autofocus>
+    <label for="txNote">What's it for?</label>
+    <input type="text" id="txNote" placeholder="e.g. Groceries">
+    <label for="txDate">Date</label>
+    <input type="date" id="txDate">
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="txCancel" style="flex:1;">Cancel</button>
+      <button class="btn btn-primary" id="txSave" style="flex:2;">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="goalBackdrop">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3 id="goalSheetTitle">New savings goal</h3>
+    <label for="goalName">Goal name</label>
+    <input type="text" id="goalName" placeholder="e.g. Holiday fund">
+    <label for="goalTarget">Target amount</label>
+    <input type="number" id="goalTarget" inputmode="decimal" placeholder="0.00">
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="goalCancel" style="flex:1;">Cancel</button>
+      <button class="btn btn-primary" id="goalSave" style="flex:2;">Save goal</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="addFundsBackdrop">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3>Add to goal</h3>
+    <label for="addFundsAmount">Amount to add</label>
+    <input type="number" id="addFundsAmount" inputmode="decimal" placeholder="0.00">
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="addFundsCancel" style="flex:1;">Cancel</button>
+      <button class="btn btn-primary" id="addFundsSave" style="flex:2;">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TAB BAR ===================== -->
+<nav class="tabbar">
+  <button class="tab-btn active" data-view="home"><span class="icon">◎</span>Home</button>
+  <button class="tab-btn" data-view="goals"><span class="icon">🎯</span>Goals</button>
+  <button class="tab-btn" data-view="settings"><span class="icon">⚙︎</span>Settings</button>
+</nav>
+
+<script src="app.js"></script>
+</body>
+  </html>
+  
