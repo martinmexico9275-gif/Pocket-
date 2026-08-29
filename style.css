@@ -11,6 +11,25 @@
   --radius: 18px;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: dark;
+  transition: background-color .2s ease, color .2s ease;
+}
+
+html[data-theme="light"] {
+  --ink: #f3efe4;
+  --card: #ffffff;
+  --card-hi: #f1ece0;
+  --line: #ddd5c2;
+  --paper: #201c14;
+  --paper-dim: #7a7264;
+  --gold: #b8791f;
+  --teal: #1f8a7d;
+  --coral: #c14f3a;
+  color-scheme: light;
+}
+html[data-theme="light"] .dial-card,
+html[data-theme="light"] .btn-fab {
+  box-shadow: 0 6px 18px rgba(184, 121, 31, 0.18);
 }
 
 * { box-sizing: border-box; }
@@ -50,6 +69,7 @@ body {
   letter-spacing: 0.02em;
 }
 .topbar .wordmark span { color: var(--gold); }
+.topbar .greeting { font-size: 0.78rem; color: var(--paper-dim); margin-top: 1px; }
 .topbar .month {
   font-family: var(--mono);
   color: var(--paper-dim);
@@ -78,9 +98,14 @@ body {
 .dial-wrap svg { width: 100%; height: 100%; }
 .dial-track { fill: none; stroke: var(--line); stroke-width: 12; }
 .dial-fill { fill: none; stroke: var(--gold); stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset .5s ease, stroke .3s ease; }
-.dial-fill.low { stroke: var(--coral); }
+.dial-fill.low { stroke: var(--coral); animation: dialPulse 1.6s ease-in-out infinite; }
 .dial-fill.tight { stroke: var(--gold); }
-.dial-fill.ok { stroke: var(--teal); }
+.dial-fill.ok { stroke: url(#dialGradient); }
+@keyframes dialPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.dial-tick { stroke: var(--line); stroke-width: 2; }
 .dial-center {
   position: absolute;
   inset: 0;
@@ -149,14 +174,232 @@ body {
 
 /* ---------- Transaction list ---------- */
 .tx-list { list-style: none; margin: 0; padding: 0; }
+.wallet-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 4px;
+  margin-bottom: 14px;
+  scrollbar-width: none;
+  cursor: pointer;
+}
+.wallet-row::-webkit-scrollbar { display: none; }
+.wallet-card {
+  flex-shrink: 0;
+  min-width: 132px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.wallet-card.total { background: linear-gradient(120% 140% at 50% -10%, var(--card-hi), var(--card)); border-color: var(--gold); }
+.wallet-card .wallet-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--paper-dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.wallet-card .wallet-amount { font-family: var(--mono); font-size: 1rem; font-weight: 700; color: var(--gold); margin-top: 4px; }
+
+.wallet-set-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.wallet-set-item:last-child { border-bottom: none; }
+.wallet-set-icon { font-size: 1.2rem; width: 30px; text-align: center; flex-shrink: 0; }
+.wallet-set-info { flex: 1; min-width: 0; }
+.wallet-set-name { font-size: 0.9rem; }
+.wallet-set-bal { font-family: var(--mono); font-size: 0.78rem; color: var(--paper-dim); margin-top: 1px; }
+
+.wallet-total-label {
+  text-align: center;
+  color: var(--paper-dim);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.wallet-total-big {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--gold);
+  margin-top: 6px;
+  letter-spacing: -0.02em;
+}
+
+.wallet-detail-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.wallet-detail-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--card-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+.wallet-detail-info { flex: 1; min-width: 0; }
+.wallet-detail-name { font-weight: 600; font-size: 0.95rem; }
+.wallet-detail-sub { color: var(--paper-dim); font-size: 0.76rem; margin-top: 1px; }
+.wallet-detail-amount { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; color: var(--gold); text-align: right; }
+.wallet-detail-del {
+  background: none; border: none; color: var(--paper-dim);
+  font-size: 1.1rem; padding: 4px 6px; cursor: pointer; margin-left: 2px;
+}
+
+.chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 10px;
+  scrollbar-width: none;
+}
+.chip-row::-webkit-scrollbar { display: none; }
+.chip {
+  flex-shrink: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--paper-dim);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip.active { background: rgba(232, 177, 78, 0.16); border-color: var(--gold); color: var(--gold); }
+
+.tx-cat {
+  display: inline-block;
+  font-size: 0.68rem;
+  color: var(--paper-dim);
+  background: var(--card-hi);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+
+.recur-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.recur-item:last-child { border-bottom: none; }
+.recur-info { flex: 1; }
+.recur-note { font-size: 0.9rem; }
+.recur-meta { font-size: 0.75rem; color: var(--paper-dim); margin-top: 1px; }
+
+/* ---------- Weekly chart ---------- */
+.chart-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 14px 10px;
+  margin-bottom: 6px;
+}
+.chart-card svg { width: 100%; height: 90px; display: block; }
+.chart-bar { fill: var(--gold); opacity: 0.85; transition: height .4s ease, y .4s ease; }
+.chart-bar.today { fill: var(--teal); opacity: 1; }
+.chart-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 2px 0;
+  font-size: 0.68rem;
+  color: var(--paper-dim);
+}
+
+/* ---------- Grouped list headers ---------- */
+.tx-group-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--paper-dim);
+  padding: 14px 4px 6px;
+}
+.tx-group-label:first-child { padding-top: 4px; }
+
+/* ---------- Swipe to delete ---------- */
 .tx-item {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+}
+.tx-item:last-child { border-bottom: none; }
+.tx-swipe-bg {
+  position: absolute;
+  inset: 0;
+  background: var(--coral);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 18px;
+  color: #2a0e08;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.tx-swipe-inner {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 4px;
-  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  touch-action: pan-y;
+  transition: transform .18s ease;
 }
-.tx-item:last-child { border-bottom: none; }
+.tx-swipe-inner.dragging { transition: none; }
+
+/* ---------- Emoji picker ---------- */
+.emoji-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.emoji-opt {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--card-hi);
+  border: 1px solid var(--line);
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.emoji-opt.active { border-color: var(--gold); background: rgba(232,177,78,0.16); }
+
+.cat-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+}
 .tx-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .tx-dot.income { background: var(--teal); }
 .tx-dot.expense { background: var(--coral); }
@@ -170,7 +413,6 @@ body {
   background: none; border: none; color: var(--paper-dim);
   font-size: 1.1rem; padding: 4px 6px; cursor: pointer;
 }
-.empty-state { color: var(--paper-dim); font-size: 0.88rem; text-align: center; padding: 24px 10px; }
 
 /* ---------- Goals ---------- */
 .goal-card {
@@ -298,7 +540,7 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 .tabbar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
-  background: rgba(27,35,43,0.92);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--line);
   display: flex;
@@ -319,8 +561,54 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
   cursor: pointer;
   font-family: var(--sans);
 }
-.tab-btn .icon { font-size: 1.25rem; line-height: 1; }
+.tab-btn .icon { display: block; }
 .tab-btn.active { color: var(--gold); }
+
+/* ---------- Tap feedback ---------- */
+.btn, .btn-fab, .chip, .tab-btn, .tx-del, .switch, input[type="checkbox"] + .slider {
+  touch-action: manipulation;
+  transition: transform .12s ease, background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.btn:active, .btn-fab:active, .chip:active, .tx-del:active { transform: scale(0.94); }
+.tab-btn:active .icon { transform: scale(0.88); }
+.tab-btn .icon { transition: transform .12s ease; }
+.goal-card, .stat-card, .dial-card, .wallet-card { transition: transform .12s ease; }
+
+/* ---------- Empty state illustrations ---------- */
+.empty-state { color: var(--paper-dim); font-size: 0.88rem; text-align: center; padding: 30px 16px; }
+
+/* ---------- Goal celebration ---------- */
+.goal-card.goal-complete {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px rgba(232, 177, 78, 0.35), 0 8px 22px rgba(232, 177, 78, 0.18);
+  animation: goalGlow 2.4s ease-in-out infinite;
+}
+@keyframes goalGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(232,177,78,0.25), 0 8px 22px rgba(232,177,78,0.12); }
+  50% { box-shadow: 0 0 0 1px rgba(232,177,78,0.5), 0 8px 26px rgba(232,177,78,0.28); }
+}
+.goal-complete-badge {
+  font-size: 0.72rem;
+  color: var(--gold);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.goal-card.goal-complete .goal-bar-fill { background: var(--gold); }
+
+.confetti-piece {
+  position: fixed;
+  top: -12px;
+  width: 8px;
+  height: 14px;
+  z-index: 60;
+  pointer-events: none;
+  border-radius: 2px;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(90vh) rotate(540deg); opacity: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
