@@ -3,6 +3,27 @@
 
   const STORE_KEY = "pockets:v1";
 
+  const CATEGORIES = [
+    "Groceries", "Transport", "Housing", "Bills", "Health",
+    "Entertainment", "Eating out", "Shopping", "Salary", "Other",
+  ];
+
+  const CATEGORY_META = {
+    "Groceries":   { icon: "🛒", color: "#7CB86A" },
+    "Transport":   { icon: "🚌", color: "#4FA8D8" },
+    "Housing":     { icon: "🏠", color: "#C98A2C" },
+    "Bills":       { icon: "💡", color: "#E0B23E" },
+    "Health":      { icon: "🩺", color: "#E8735C" },
+    "Entertainment": { icon: "🎬", color: "#A87CE0" },
+    "Eating out":  { icon: "🍽️", color: "#E0894F" },
+    "Shopping":    { icon: "🛍️", color: "#E05FA0" },
+    "Salary":      { icon: "💼", color: "#2AA198" },
+    "Other":       { icon: "⚪️", color: "#8A94A0" },
+  };
+  const catMeta = (cat) => CATEGORY_META[cat] || CATEGORY_META["Other"];
+
+  const WALLET_ICONS = ["💵", "💳", "🏦", "🐖", "📱", "💰"];
+
   const defaultState = () => ({
     settings: {
       currency: "£",
@@ -10,9 +31,15 @@
       startDay: 1,
       warnEnabled: true,
       warnThreshold: 5,
+      theme: "dark",
     },
-    transactions: [], // { id, type: 'income'|'expense', amount, note, date (YYYY-MM-DD) }
-    goals: [],        // { id, name, target, saved }
+    transactions: [], // { id, type: 'income'|'expense', amount, note, category, date (YYYY-MM-DD), walletId, recurringId? }
+    goals: [],        // { id, name, target, saved, icon }
+    recurring: [],    // { id, type, amount, note, category, day, lastPeriodStart, walletId }
+    wallets: [
+      { id: "w-cash", name: "Cash", icon: "💵", startingBalance: 0 },
+      { id: "w-bank", name: "Bank/Card", icon: "💳", startingBalance: 0 },
+    ],
   });
 
   function loadState() {
@@ -20,7 +47,17 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return defaultState();
       const parsed = JSON.parse(raw);
-      return { ...defaultState(), ...parsed, settings: { ...defaultState().settings, ...parsed.settings } };
+      const merged = { ...defaultState(), ...parsed, settings: { ...defaultState().settings, ...parsed.settings } };
+
+      // Migrate pre-wallet saves: fold the old single starting balance into one wallet
+      // and attach every existing transaction to it.
+      if (!parsed.wallets) {
+        const oldBalance = Number(parsed.settings && parsed.settings.startingBalance) || 0;
+        const migratedWallet = { id: "w-main", name: "Wallet", icon: "💰", startingBalance: oldBalance };
+        merged.wallets = [migratedWallet];
+        merged.transactions = merged.transactions.map((t) => ({ ...t, walletId: t.walletId || migratedWallet.id }));
+      }
+      return merged;
     } catch (e) {
       console.warn("Could not read saved data, starting fresh.", e);
       return defaultState();
@@ -41,6 +78,35 @@
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const todayISO = () => new Date().toISOString().slice(0, 10);
+
+  let activeCategory = "all";
+  const lastValues = {};
+
+  function animateNumber(el, key, toValue) {
+    const from = lastValues[key] !== undefined ? lastValues[key] : toValue;
+    lastValues[key] = toValue;
+    if (Math.abs(from - toValue) < 0.005) { el.textContent = fmt(toValue); return; }
+    const duration = 450;
+    const start = performance.now();
+    function tick(now) {
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const current = from + (toValue - from) * eased;
+      el.textContent = fmt(current);
+      if (t < 1) requestAnimationFrame(tick);
+      else el.textContent = fmt(toValue);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- Theme ----------
+  function applyTheme() {
+    const theme = state.settings.theme === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    document.querySelector('meta[name="theme-color"]').setAttribute(
+      "content", theme === "light" ? "#f3efe4" : "#10151a"
+    );
+  }
 
   // ---------- Budget period math ----------
   // A "budget month" runs from settings.startDay of one calendar month to the day before
@@ -65,6 +131,38 @@
     return state.transactions.filter((t) => t.date >= startISO && t.date < endISO);
   }
 
+  // Generate any recurring transactions that are due for the current budget period
+  // and haven't been created yet. Runs once per app load.
+  function processRecurring() {
+    const period = currentPeriod();
+    const periodStartISO = isoDate(period.start);
+    let changed = false;
+
+    state.recurring.forEach((r) => {
+      if (r.lastPeriodStart === periodStartISO) return; // already generated this period
+
+      let dueDate = new Date(period.start.getFullYear(), period.start.getMonth(), r.day);
+      if (dueDate < period.start) dueDate = period.start;
+      if (dueDate >= period.end) dueDate = new Date(period.end.getTime() - 86400000);
+      if (dueDate > new Date()) return; // not due yet this period
+
+      state.transactions.push({
+        id: uid(),
+        type: r.type,
+        amount: r.amount,
+        note: r.note,
+        category: r.category,
+        date: isoDate(dueDate),
+        recurringId: r.id,
+        walletId: r.walletId || defaultWalletId(),
+      });
+      r.lastPeriodStart = periodStartISO;
+      changed = true;
+    });
+
+    if (changed) save();
+  }
+
   function computeSummary() {
     const period = currentPeriod();
     const txs = txInPeriod(period);
@@ -86,6 +184,71 @@
   }
 
   // ---------- Rendering ----------
+  function computeWalletBalance(walletId) {
+    const wallet = state.wallets.find((w) => w.id === walletId);
+    if (!wallet) return 0;
+    const txs = state.transactions.filter((t) => t.walletId === walletId);
+    const income = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+    const spent = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+    return (Number(wallet.startingBalance) || 0) + income - spent;
+  }
+
+  function computeTotalBalance() {
+    return state.wallets.reduce((sum, w) => sum + computeWalletBalance(w.id), 0);
+  }
+
+  function defaultWalletId() {
+    return state.wallets[0] ? state.wallets[0].id : null;
+  }
+
+  function renderWallets() {
+    const row = document.getElementById("walletRow");
+    let html = `
+      <div class="wallet-card total">
+        <div class="wallet-label">Ⓣ Total</div>
+        <div class="wallet-amount" id="walletTotalAmount">£0.00</div>
+      </div>
+    `;
+    html += state.wallets.map((w) => `
+      <div class="wallet-card">
+        <div class="wallet-label">${w.icon} ${escapeHtml(w.name)}</div>
+        <div class="wallet-amount" id="walletAmount-${w.id}">£0.00</div>
+      </div>
+    `).join("");
+    row.innerHTML = html;
+
+    animateNumber(document.getElementById("walletTotalAmount"), "wallet-total", computeTotalBalance());
+    state.wallets.forEach((w) => {
+      const el = document.getElementById(`walletAmount-${w.id}`);
+      if (el) animateNumber(el, `wallet-${w.id}`, computeWalletBalance(w.id));
+    });
+  }
+
+  function renderGreeting() {
+    const h = new Date().getHours();
+    const text = h < 5 ? "Still up?" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    document.getElementById("greeting").textContent = text;
+  }
+
+  function renderDialTicks() {
+    const g = document.getElementById("dialTicks");
+    if (g.childElementCount) return; // draw once
+    const cx = 110, cy = 110, rOuter = 108, tickCount = 25;
+    const sweepDeg = 244; // matches the ~75% dasharray sweep
+    let html = "";
+    for (let i = 0; i <= tickCount; i++) {
+      const angle = (sweepDeg * (i / tickCount)) * (Math.PI / 180);
+      const major = i % 5 === 0;
+      const rInner = major ? rOuter - 8 : rOuter - 4;
+      const x1 = cx + rInner * Math.cos(angle);
+      const y1 = cy + rInner * Math.sin(angle);
+      const x2 = cx + rOuter * Math.cos(angle);
+      const y2 = cy + rOuter * Math.sin(angle);
+      html += `<line class="dial-tick" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="${major ? 2 : 1}"/>`;
+    }
+    g.innerHTML = html;
+  }
+
   function renderMonthLabel(period) {
     const opts = { day: "numeric", month: "short" };
     const endDisplay = new Date(period.end.getTime() - 86400000);
@@ -99,7 +262,7 @@
     const subEl = document.getElementById("dialSub");
 
     const allowance = summary.dailyAllowance;
-    amountEl.textContent = fmt(allowance);
+    animateNumber(amountEl, "dial", allowance);
     subEl.textContent = `${summary.daysLeft} day${summary.daysLeft === 1 ? "" : "s"} left this period`;
 
     // Reference scale: treat (base income / total days) as a "full dial" baseline.
@@ -126,27 +289,145 @@
   }
 
   function renderStats(summary) {
-    document.getElementById("statIncome").textContent = fmt(summary.income);
-    document.getElementById("statSpent").textContent = fmt(summary.spent);
+    animateNumber(document.getElementById("statIncome"), "income", summary.income);
+    animateNumber(document.getElementById("statSpent"), "spent", summary.spent);
+  }
+
+  function renderCategoryFilter() {
+    const used = Array.from(new Set(state.transactions.map((t) => t.category).filter(Boolean)));
+    const row = document.getElementById("categoryFilter");
+    if (used.length === 0) { row.innerHTML = ""; activeCategory = "all"; return; }
+    if (activeCategory !== "all" && !used.includes(activeCategory)) activeCategory = "all";
+    const chips = ["all", ...used];
+    row.innerHTML = chips.map((c) => `
+      <button class="chip ${c === activeCategory ? "active" : ""}" data-chip="${escapeHtml(c)}">
+        ${c === "all" ? "All" : `${catMeta(c).icon} ${escapeHtml(c)}`}
+      </button>
+    `).join("");
+  }
+
+  function emptyIllustration(kind) {
+    const path = kind === "goals"
+      ? '<circle cx="32" cy="32" r="22"/><circle cx="32" cy="32" r="13"/><circle cx="32" cy="32" r="2.5" fill="var(--gold)" stroke="none"/>'
+      : '<rect x="16" y="10" width="32" height="44" rx="4"/><path d="M23 22h18M23 30h18M23 38h10"/>';
+    return `<svg viewBox="0 0 64 64" width="52" height="52" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--line); display:block; margin:0 auto 10px;">${path}</svg>`;
+  }
+
+  function groupLabelFor(dateISO) {
+    const today = todayISO();
+    const d = new Date(dateISO + "T00:00:00");
+    const yest = new Date(); yest.setDate(yest.getDate() - 1);
+    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    if (dateISO === today) return "Today";
+    if (dateISO === isoDate(yest)) return "Yesterday";
+    if (d >= new Date(weekAgo.getFullYear(), weekAgo.getMonth(), weekAgo.getDate())) return "This week";
+    return "Earlier";
   }
 
   function renderTxList() {
     const list = document.getElementById("txList");
-    const sorted = [...state.transactions].sort((a, b) => (a.date < b.date ? 1 : -1) || b.id.localeCompare(a.id));
+    let items = [...state.transactions];
+    if (activeCategory !== "all") items = items.filter((t) => t.category === activeCategory);
+    const sorted = items.sort((a, b) => (a.date < b.date ? 1 : -1) || b.id.localeCompare(a.id));
     if (sorted.length === 0) {
-      list.innerHTML = `<div class="empty-state">No transactions yet. Tap + to add your first one.</div>`;
+      const msg = state.transactions.length === 0 ? "No transactions yet. Tap + to add your first one." : "Nothing in this category.";
+      list.innerHTML = `<div class="empty-state">${emptyIllustration("tx")}${msg}</div>`;
       return;
     }
-    list.innerHTML = sorted.slice(0, 40).map((t) => `
+
+    let lastGroup = null;
+    let html = "";
+    sorted.slice(0, 60).forEach((t) => {
+      const group = groupLabelFor(t.date);
+      if (group !== lastGroup) {
+        html += `<div class="tx-group-label">${group}</div>`;
+        lastGroup = group;
+      }
+      const meta = catMeta(t.category);
+      html += `
       <li class="tx-item" data-id="${t.id}">
-        <span class="tx-dot ${t.type}"></span>
-        <div class="tx-info">
-          <div class="tx-note">${escapeHtml(t.note || (t.type === "income" ? "Income" : "Spending"))}</div>
-          <div class="tx-meta">${formatDate(t.date)}</div>
+        <div class="tx-swipe-bg">Delete</div>
+        <div class="tx-swipe-inner">
+          <span class="cat-badge" style="background:${meta.color}26;">${meta.icon}</span>
+          <div class="tx-info">
+            <div class="tx-note">${escapeHtml(t.note || (t.type === "income" ? "Income" : "Spending"))}${t.recurringId ? " ↻" : ""}</div>
+            <div class="tx-meta">${formatDate(t.date)}${t.category ? `<span class="tx-cat">${escapeHtml(t.category)}</span>` : ""}</div>
+          </div>
+          <div class="tx-amount ${t.type}">${t.type === "expense" ? "-" : "+"}${fmt(t.amount)}</div>
+          <button class="tx-del" data-del="${t.id}" aria-label="Delete">✕</button>
         </div>
-        <div class="tx-amount ${t.type}">${t.type === "expense" ? "-" : "+"}${fmt(t.amount)}</div>
-        <button class="tx-del" data-del="${t.id}" aria-label="Delete">✕</button>
       </li>
+    `;
+    });
+    list.innerHTML = html;
+  }
+
+  // ---------- Swipe-to-delete ----------
+  (function setupSwipeToDelete() {
+    const list = document.getElementById("txList");
+    let dragEl = null, startX = 0, currentX = 0, dragging = false, txId = null;
+
+    list.addEventListener("pointerdown", (e) => {
+      const inner = e.target.closest(".tx-swipe-inner");
+      if (!inner) return;
+      dragEl = inner;
+      txId = inner.closest(".tx-item").dataset.id;
+      startX = e.clientX;
+      currentX = 0;
+      dragging = true;
+      dragEl.classList.add("dragging");
+      dragEl.setPointerCapture(e.pointerId);
+    });
+
+    list.addEventListener("pointermove", (e) => {
+      if (!dragging || !dragEl) return;
+      currentX = Math.min(0, e.clientX - startX);
+      dragEl.style.transform = `translateX(${currentX}px)`;
+    });
+
+    function endDrag() {
+      if (!dragging || !dragEl) return;
+      dragEl.classList.remove("dragging");
+      const threshold = -90;
+      if (currentX < threshold) {
+        const item = dragEl.closest(".tx-item");
+        item.style.transition = "opacity .18s ease";
+        item.style.opacity = "0";
+        setTimeout(() => {
+          state.transactions = state.transactions.filter((t) => t.id !== txId);
+          save();
+          renderAll();
+        }, 160);
+      } else {
+        dragEl.style.transform = "translateX(0)";
+      }
+      dragging = false;
+      dragEl = null;
+    }
+
+    list.addEventListener("pointerup", endDrag);
+    list.addEventListener("pointercancel", endDrag);
+  })();
+
+  function renderRecurring() {
+    const list = document.getElementById("recurringList");
+    const empty = document.getElementById("recurringEmpty");
+    if (state.recurring.length === 0) {
+      list.innerHTML = "";
+      empty.style.display = "block";
+      return;
+    }
+    empty.style.display = "none";
+    list.innerHTML = state.recurring.map((r) => `
+      <div class="recur-item" data-id="${r.id}">
+        <span class="tx-dot ${r.type}"></span>
+        <div class="recur-info">
+          <div class="recur-note">${escapeHtml(r.note || (r.type === "income" ? "Income" : "Spending"))}</div>
+          <div class="recur-meta">${ordinal(r.day)} of each period · ${r.category || "Other"}</div>
+        </div>
+        <div class="tx-amount ${r.type}">${r.type === "expense" ? "-" : "+"}${fmt(r.amount)}</div>
+        <button class="tx-del" data-delrec="${r.id}" aria-label="Delete">✕</button>
+      </div>
     `).join("");
   }
 
@@ -170,13 +451,15 @@
     empty.style.display = "none";
     list.innerHTML = state.goals.map((g) => {
       const pct = g.target > 0 ? Math.min((g.saved / g.target) * 100, 100) : 0;
+      const complete = g.saved >= g.target && g.target > 0;
       return `
-        <div class="goal-card" data-id="${g.id}">
+        <div class="goal-card ${complete ? "goal-complete" : ""}" data-id="${g.id}">
           <div class="goal-top">
-            <div class="goal-name">${escapeHtml(g.name)}</div>
+            <div class="goal-name">${g.icon || "🎯"} ${escapeHtml(g.name)}</div>
             <div class="goal-nums">${fmt(g.saved)} / ${fmt(g.target)}</div>
           </div>
           <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pct}%"></div></div>
+          ${complete ? `<div class="goal-complete-badge">🎉 Goal reached!</div>` : ""}
           <div class="goal-actions">
             <button class="btn btn-secondary btn-sm" data-fund="${g.id}">Add funds</button>
             <button class="btn btn-ghost btn-sm" data-delgoal="${g.id}">Delete</button>
@@ -186,11 +469,49 @@
     }).join("");
   }
 
+  function renderWalletsPage() {
+    animateNumber(document.getElementById("walletPageTotal"), "wallet-page-total", computeTotalBalance());
+
+    const list = document.getElementById("walletDetailList");
+    const empty = document.getElementById("walletsEmpty");
+    if (state.wallets.length === 0) {
+      list.innerHTML = "";
+      empty.style.display = "block";
+      return;
+    }
+    empty.style.display = "none";
+    list.innerHTML = state.wallets.map((w) => {
+      const count = state.transactions.filter((t) => t.walletId === w.id).length;
+      return `
+        <div class="wallet-detail-card" data-id="${w.id}">
+          <div class="wallet-detail-icon">${w.icon}</div>
+          <div class="wallet-detail-info">
+            <div class="wallet-detail-name">${escapeHtml(w.name)}</div>
+            <div class="wallet-detail-sub">${count} transaction${count === 1 ? "" : "s"}</div>
+          </div>
+          <div class="wallet-detail-amount">${fmt(computeWalletBalance(w.id))}</div>
+          <button class="wallet-detail-del" data-delwallet="${w.id}" aria-label="Delete wallet">✕</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function populateWalletSelects() {
+    const options = state.wallets.map((w) => `<option value="${w.id}">${w.icon} ${escapeHtml(w.name)}</option>`).join("");
+    ["txWallet", "addFundsWallet"].forEach((id) => {
+      const sel = document.getElementById(id);
+      const prev = sel.value;
+      sel.innerHTML = options;
+      if (state.wallets.some((w) => w.id === prev)) sel.value = prev;
+    });
+  }
+
   function renderSettings() {
     document.getElementById("currencyInput").value = state.settings.currency;
     document.getElementById("incomeInput").value = state.settings.monthlyIncome || "";
     document.getElementById("warnToggle").checked = !!state.settings.warnEnabled;
     document.getElementById("warnThreshold").value = state.settings.warnThreshold;
+    document.getElementById("themeToggle").checked = state.settings.theme === "light";
     const sel = document.getElementById("startDay");
     if (!sel.options.length) {
       for (let i = 1; i <= 28; i++) {
@@ -209,14 +530,60 @@
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
+  function populateCategorySelect() {
+    const sel = document.getElementById("txCategory");
+    if (sel.options.length) return;
+    sel.innerHTML = CATEGORIES.map((c) => `<option value="${c}">${catMeta(c).icon} ${c}</option>`).join("");
+  }
+
+  function renderWeekChart() {
+    const svg = document.getElementById("weekChart");
+    const labelsEl = document.getElementById("weekChartLabels");
+    const days = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      days.push(d);
+    }
+    const totals = days.map((d) => {
+      const iso = isoDate(d);
+      return state.transactions
+        .filter((t) => t.type === "expense" && t.date === iso)
+        .reduce((s, t) => s + t.amount, 0);
+    });
+    const max = Math.max(...totals, 1);
+    const barW = 28, gap = (320 - barW * 7) / 8, chartH = 90;
+
+    let bars = "";
+    totals.forEach((val, i) => {
+      const h = Math.max((val / max) * (chartH - 14), val > 0 ? 4 : 0);
+      const x = gap + i * (barW + gap);
+      const y = chartH - h;
+      const isToday = i === 6;
+      bars += `<rect class="chart-bar${isToday ? " today" : ""}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="5"></rect>`;
+    });
+    svg.innerHTML = bars;
+
+    labelsEl.innerHTML = days.map((d) => `<span>${d.toLocaleDateString(undefined, { weekday: "narrow" })}</span>`).join("");
+  }
+
   function renderAll() {
     const summary = computeSummary();
+    renderGreeting();
     renderMonthLabel(summary.period);
+    renderWallets();
+    renderWalletsPage();
+    renderDialTicks();
     renderDial(summary);
     renderStats(summary);
+    renderWeekChart();
+    renderCategoryFilter();
     renderTxList();
     renderGoals();
+    renderRecurring();
     renderSettings();
+    populateCategorySelect();
+    populateWalletSelects();
   }
 
   // ---------- Tab navigation ----------
@@ -239,6 +606,11 @@
     document.getElementById("txAmount").value = "";
     document.getElementById("txNote").value = "";
     document.getElementById("txDate").value = todayISO();
+    document.getElementById("txRecurring").checked = false;
+    populateCategorySelect();
+    populateWalletSelects();
+    document.getElementById("txCategory").value = CATEGORIES[0];
+    if (defaultWalletId()) document.getElementById("txWallet").value = defaultWalletId();
     currentTxType = "expense";
     segExpense.classList.add("active");
     segIncome.classList.remove("active");
@@ -264,8 +636,21 @@
     const amount = parseFloat(document.getElementById("txAmount").value);
     if (!amount || amount <= 0) return;
     const note = document.getElementById("txNote").value.trim();
+    const category = document.getElementById("txCategory").value;
+    const walletId = document.getElementById("txWallet").value || defaultWalletId();
     const date = document.getElementById("txDate").value || todayISO();
-    state.transactions.push({ id: uid(), type: currentTxType, amount, note, date });
+    const isRecurring = document.getElementById("txRecurring").checked;
+
+    if (isRecurring) {
+      const recId = uid();
+      const day = new Date(date + "T00:00:00").getDate();
+      const periodStartISO = isoDate(currentPeriod().start);
+      state.recurring.push({ id: recId, type: currentTxType, amount, note, category, day, walletId, lastPeriodStart: periodStartISO });
+      state.transactions.push({ id: uid(), type: currentTxType, amount, note, category, date, walletId, recurringId: recId });
+    } else {
+      state.transactions.push({ id: uid(), type: currentTxType, amount, note, category, date, walletId });
+    }
+
     save();
     txBackdrop.classList.remove("show");
     renderAll();
@@ -280,11 +665,47 @@
     }
   });
 
+  document.getElementById("categoryFilter").addEventListener("click", (e) => {
+    const chip = e.target.getAttribute("data-chip");
+    if (chip) {
+      activeCategory = chip;
+      renderCategoryFilter();
+      renderTxList();
+    }
+  });
+
+  document.getElementById("recurringList").addEventListener("click", (e) => {
+    const delId = e.target.getAttribute("data-delrec");
+    if (delId) {
+      state.recurring = state.recurring.filter((r) => r.id !== delId);
+      save();
+      renderAll();
+    }
+  });
+
   // ---------- Goals ----------
+  const GOAL_EMOJIS = ["🎯", "🏖️", "🏠", "🚗", "🎧", "💻", "✈️", "🎓", "💍", "🐣", "🎁", "🩺"];
+  let selectedGoalEmoji = GOAL_EMOJIS[0];
+
+  function renderGoalEmojiPicker() {
+    const el = document.getElementById("goalEmojiPicker");
+    el.innerHTML = GOAL_EMOJIS.map((e) => `
+      <div class="emoji-opt ${e === selectedGoalEmoji ? "active" : ""}" data-emoji="${e}">${e}</div>
+    `).join("");
+  }
+  document.getElementById("goalEmojiPicker").addEventListener("click", (e) => {
+    const opt = e.target.closest(".emoji-opt");
+    if (!opt) return;
+    selectedGoalEmoji = opt.dataset.emoji;
+    renderGoalEmojiPicker();
+  });
+
   const goalBackdrop = document.getElementById("goalBackdrop");
   document.getElementById("newGoalBtn").addEventListener("click", () => {
     document.getElementById("goalName").value = "";
     document.getElementById("goalTarget").value = "";
+    selectedGoalEmoji = GOAL_EMOJIS[0];
+    renderGoalEmojiPicker();
     goalBackdrop.classList.add("show");
   });
   document.getElementById("goalCancel").addEventListener("click", () => goalBackdrop.classList.remove("show"));
@@ -294,10 +715,67 @@
     const name = document.getElementById("goalName").value.trim();
     const target = parseFloat(document.getElementById("goalTarget").value);
     if (!name || !target || target <= 0) return;
-    state.goals.push({ id: uid(), name, target, saved: 0 });
+    state.goals.push({ id: uid(), name, target, saved: 0, icon: selectedGoalEmoji });
     save();
     goalBackdrop.classList.remove("show");
     renderAll();
+  });
+
+  // ---------- Wallets ----------
+  let selectedWalletEmoji = WALLET_ICONS[0];
+  const walletBackdrop = document.getElementById("walletBackdrop");
+
+  function renderWalletEmojiPicker() {
+    const el = document.getElementById("walletEmojiPicker");
+    el.innerHTML = WALLET_ICONS.map((e) => `
+      <div class="emoji-opt ${e === selectedWalletEmoji ? "active" : ""}" data-emoji="${e}">${e}</div>
+    `).join("");
+  }
+  document.getElementById("walletEmojiPicker").addEventListener("click", (e) => {
+    const opt = e.target.closest(".emoji-opt");
+    if (!opt) return;
+    selectedWalletEmoji = opt.dataset.emoji;
+    renderWalletEmojiPicker();
+  });
+
+  document.getElementById("newWalletBtn").addEventListener("click", () => {
+    document.getElementById("walletName").value = "";
+    document.getElementById("walletBalance").value = "";
+    selectedWalletEmoji = WALLET_ICONS[0];
+    renderWalletEmojiPicker();
+    walletBackdrop.classList.add("show");
+  });
+  document.getElementById("walletCancel").addEventListener("click", () => walletBackdrop.classList.remove("show"));
+  walletBackdrop.addEventListener("click", (e) => { if (e.target === walletBackdrop) walletBackdrop.classList.remove("show"); });
+
+  document.getElementById("walletSave").addEventListener("click", () => {
+    const name = document.getElementById("walletName").value.trim();
+    const startingBalance = parseFloat(document.getElementById("walletBalance").value) || 0;
+    if (!name) return;
+    state.wallets.push({ id: uid(), name, icon: selectedWalletEmoji, startingBalance });
+    save();
+    walletBackdrop.classList.remove("show");
+    renderAll();
+  });
+
+  document.getElementById("walletDetailList").addEventListener("click", (e) => {
+    const delId = e.target.getAttribute("data-delwallet");
+    if (!delId) return;
+    if (state.wallets.length <= 1) {
+      alert("You need at least one wallet. Add another before deleting this one.");
+      return;
+    }
+    if (!confirm("Delete this wallet? Its transactions will move to your other wallet.")) return;
+    state.wallets = state.wallets.filter((w) => w.id !== delId);
+    const fallbackId = defaultWalletId();
+    state.transactions.forEach((t) => { if (t.walletId === delId) t.walletId = fallbackId; });
+    state.recurring.forEach((r) => { if (r.walletId === delId) r.walletId = fallbackId; });
+    save();
+    renderAll();
+  });
+
+  document.getElementById("walletRow").addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-view="wallet"]').click();
   });
 
   const addFundsBackdrop = document.getElementById("addFundsBackdrop");
@@ -309,6 +787,8 @@
     if (fundId) {
       fundingGoalId = fundId;
       document.getElementById("addFundsAmount").value = "";
+      populateWalletSelects();
+      if (defaultWalletId()) document.getElementById("addFundsWallet").value = defaultWalletId();
       addFundsBackdrop.classList.add("show");
     } else if (delId) {
       state.goals = state.goals.filter((g) => g.id !== delId);
@@ -320,15 +800,35 @@
   document.getElementById("addFundsCancel").addEventListener("click", () => addFundsBackdrop.classList.remove("show"));
   addFundsBackdrop.addEventListener("click", (e) => { if (e.target === addFundsBackdrop) addFundsBackdrop.classList.remove("show"); });
 
+  function fireConfetti() {
+    const colors = ["#e8b14e", "#2aa198", "#e8735c", "#7CB86A", "#A87CE0"];
+    const count = 24;
+    for (let i = 0; i < count; i++) {
+      const piece = document.createElement("div");
+      piece.className = "confetti-piece";
+      piece.style.left = Math.random() * 100 + "vw";
+      piece.style.background = colors[i % colors.length];
+      const duration = 1.4 + Math.random() * 0.9;
+      piece.style.animationDuration = duration + "s";
+      piece.style.animationDelay = (Math.random() * 0.3) + "s";
+      document.body.appendChild(piece);
+      setTimeout(() => piece.remove(), (duration + 0.3) * 1000);
+    }
+  }
+
   document.getElementById("addFundsSave").addEventListener("click", () => {
     const amount = parseFloat(document.getElementById("addFundsAmount").value);
     if (!amount || amount <= 0 || !fundingGoalId) return;
+    const walletId = document.getElementById("addFundsWallet").value || defaultWalletId();
     const goal = state.goals.find((g) => g.id === fundingGoalId);
     if (goal) {
+      const wasComplete = goal.target > 0 && goal.saved >= goal.target;
       goal.saved += amount;
+      const nowComplete = goal.target > 0 && goal.saved >= goal.target;
       // Also log it as an expense so it affects the daily allowance honestly.
-      state.transactions.push({ id: uid(), type: "expense", amount, note: `To goal: ${goal.name}`, date: todayISO() });
+      state.transactions.push({ id: uid(), type: "expense", amount, note: `To goal: ${goal.name}`, category: "Other", date: todayISO(), walletId });
       save();
+      if (!wasComplete && nowComplete) fireConfetti();
     }
     addFundsBackdrop.classList.remove("show");
     renderAll();
@@ -354,6 +854,10 @@
   document.getElementById("warnThreshold").addEventListener("input", (e) => {
     state.settings.warnThreshold = parseFloat(e.target.value) || 0;
     save(); renderAll();
+  });
+  document.getElementById("themeToggle").addEventListener("change", (e) => {
+    state.settings.theme = e.target.checked ? "light" : "dark";
+    save(); applyTheme();
   });
 
   document.getElementById("exportBtn").addEventListener("click", () => {
@@ -383,6 +887,7 @@
     });
   }
 
+  applyTheme();
+  processRecurring();
   renderAll();
 })();
-      
