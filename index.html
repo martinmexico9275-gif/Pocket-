@@ -21,7 +21,10 @@
 <div id="app">
 
   <div class="topbar">
-    <div class="wordmark">Pocket<span>s</span></div>
+    <div>
+      <div class="wordmark">Pocket<span>s</span></div>
+      <div class="greeting" id="greeting">Hello</div>
+    </div>
     <div class="month" id="monthLabel">—</div>
   </div>
 
@@ -32,11 +35,20 @@
   <!-- ===================== HOME ===================== -->
   <section class="view active" id="view-home">
 
-    <div class="dial-card">
+    <div class="wallet-row" id="walletRow"></div>
+
+  <div class="dial-card">
       <div class="dial-wrap">
         <svg viewBox="0 0 220 220">
+          <defs>
+            <linearGradient id="dialGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop id="gradStop1" offset="0%" stop-color="#2aa198"/>
+              <stop id="gradStop2" offset="100%" stop-color="#e8b14e"/>
+            </linearGradient>
+          </defs>
           <circle class="dial-track" cx="110" cy="110" r="94" pathLength="100" stroke-dasharray="75 100" stroke-dashoffset="0" transform="rotate(148 110 110)"></circle>
-          <circle class="dial-fill" id="dialFill" cx="110" cy="110" r="94" pathLength="100" stroke-dasharray="75 100" stroke-dashoffset="75" transform="rotate(148 110 110)"></circle>
+          <g id="dialTicks" transform="rotate(148 110 110)"></g>
+          <circle class="dial-fill" id="dialFill" cx="110" cy="110" r="94" pathLength="100" stroke-dasharray="75 100" stroke-dashoffset="75" transform="rotate(148 110 110)" stroke="url(#dialGradient)"></circle>
         </svg>
         <div class="dial-center">
           <div class="amount" id="dialAmount">£0.00</div>
@@ -58,9 +70,41 @@
     </div>
 
     <div class="section-head">
+      <h2>Last 7 days</h2>
+    </div>
+    <div class="chart-card">
+      <svg id="weekChart" viewBox="0 0 320 110" preserveAspectRatio="none"></svg>
+      <div class="chart-labels" id="weekChartLabels"></div>
+    </div>
+
+    <div class="section-head">
       <h2>Recent activity</h2>
     </div>
+    <div class="chip-row" id="categoryFilter"></div>
     <ul class="tx-list" id="txList"></ul>
+  </section>
+
+  <!-- ===================== WALLET ===================== -->
+  <section class="view" id="view-wallet">
+    <div class="section-head" style="margin-top:4px;">
+      <h2>Total balance</h2>
+    </div>
+    <div class="dial-card" style="padding:20px 18px;">
+      <div class="wallet-total-label">Across all wallets</div>
+      <div class="wallet-total-big" id="walletPageTotal">£0.00</div>
+    </div>
+
+    <div class="section-head">
+      <h2>Your wallets</h2>
+      <button class="btn btn-secondary btn-sm" id="newWalletBtn">+ New</button>
+    </div>
+    <div id="walletDetailList"></div>
+    <div class="empty-state" id="walletsEmpty">
+      <svg viewBox="0 0 64 64" width="52" height="52" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--line); display:block; margin:0 auto 10px;">
+        <rect x="8" y="18" width="48" height="34" rx="5"/><path d="M8 27h48"/><circle cx="46" cy="38" r="3" fill="var(--gold)" stroke="none"/>
+      </svg>
+      No wallets yet. Add one to start tracking a balance.
+    </div>
   </section>
 
   <!-- ===================== GOALS ===================== -->
@@ -70,7 +114,14 @@
       <button class="btn btn-secondary btn-sm" id="newGoalBtn">+ New</button>
     </div>
     <div id="goalsList"></div>
-    <div class="empty-state" id="goalsEmpty">No goals yet. Add one to start setting money aside.</div>
+    <div class="empty-state" id="goalsEmpty">
+      <svg viewBox="0 0 64 64" width="52" height="52" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--line); display:block; margin:0 auto 10px;">
+        <circle cx="32" cy="32" r="22"/>
+        <circle cx="32" cy="32" r="13"/>
+        <circle cx="32" cy="32" r="2.5" fill="var(--gold)" stroke="none"/>
+      </svg>
+      No goals yet. Add one to start setting money aside.
+    </div>
   </section>
 
   <!-- ===================== SETTINGS ===================== -->
@@ -85,6 +136,22 @@
 
     <label for="startDay">Budget month starts on day</label>
     <select id="startDay"></select>
+
+    <div class="section-head"><h2>Appearance</h2></div>
+    <div class="toggle-row">
+      <div>
+        <div class="t-label">Light mode</div>
+        <div class="t-sub">Switch between dark and light theme</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="themeToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="section-head"><h2>Recurring transactions</h2></div>
+    <div id="recurringList"></div>
+    <div class="empty-state" id="recurringEmpty">None yet. Turn on "Repeats monthly" when adding a transaction.</div>
 
     <div class="section-head"><h2>Alerts</h2></div>
     <div class="toggle-row">
@@ -127,8 +194,22 @@
     <input type="number" id="txAmount" inputmode="decimal" placeholder="0.00" autofocus>
     <label for="txNote">What's it for?</label>
     <input type="text" id="txNote" placeholder="e.g. Groceries">
+    <label for="txCategory">Category</label>
+    <select id="txCategory"></select>
+    <label for="txWallet">Wallet</label>
+    <select id="txWallet"></select>
     <label for="txDate">Date</label>
     <input type="date" id="txDate">
+    <div class="toggle-row" style="padding-left:0; padding-right:0;">
+      <div>
+        <div class="t-label">Repeats monthly</div>
+        <div class="t-sub">Auto-added on this day every budget period</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="txRecurring">
+        <span class="slider"></span>
+      </label>
+    </div>
     <div class="sheet-actions">
       <button class="btn btn-ghost" id="txCancel" style="flex:1;">Cancel</button>
       <button class="btn btn-primary" id="txSave" style="flex:2;">Save</button>
@@ -140,6 +221,8 @@
   <div class="sheet">
     <div class="sheet-handle"></div>
     <h3 id="goalSheetTitle">New savings goal</h3>
+    <label>Icon</label>
+    <div class="emoji-picker" id="goalEmojiPicker"></div>
     <label for="goalName">Goal name</label>
     <input type="text" id="goalName" placeholder="e.g. Holiday fund">
     <label for="goalTarget">Target amount</label>
@@ -157,6 +240,8 @@
     <h3>Add to goal</h3>
     <label for="addFundsAmount">Amount to add</label>
     <input type="number" id="addFundsAmount" inputmode="decimal" placeholder="0.00">
+    <label for="addFundsWallet">From wallet</label>
+    <select id="addFundsWallet"></select>
     <div class="sheet-actions">
       <button class="btn btn-ghost" id="addFundsCancel" style="flex:1;">Cancel</button>
       <button class="btn btn-primary" id="addFundsSave" style="flex:2;">Add</button>
@@ -164,14 +249,43 @@
   </div>
 </div>
 
+<div class="sheet-backdrop" id="walletBackdrop">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3>New wallet</h3>
+    <label>Icon</label>
+    <div class="emoji-picker" id="walletEmojiPicker"></div>
+    <label for="walletName">Wallet name</label>
+    <input type="text" id="walletName" placeholder="e.g. Bank/Card">
+    <label for="walletBalance">Starting balance</label>
+    <input type="number" id="walletBalance" inputmode="decimal" placeholder="0.00">
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="walletCancel" style="flex:1;">Cancel</button>
+      <button class="btn btn-primary" id="walletSave" style="flex:2;">Save wallet</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== TAB BAR ===================== -->
 <nav class="tabbar">
-  <button class="tab-btn active" data-view="home"><span class="icon">◎</span>Home</button>
-  <button class="tab-btn" data-view="goals"><span class="icon">🎯</span>Goals</button>
-  <button class="tab-btn" data-view="settings"><span class="icon">⚙︎</span>Settings</button>
+  <button class="tab-btn active" data-view="home">
+    <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 12 L16 8.2"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+    Home
+  </button>
+  <button class="tab-btn" data-view="wallet">
+    <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><circle cx="16" cy="14.5" r="1.3" fill="currentColor" stroke="none"/></svg>
+    Wallet
+  </button>
+  <button class="tab-btn" data-view="goals">
+    <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>
+    Goals
+  </button>
+  <button class="tab-btn" data-view="settings">
+    <svg class="icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="15" cy="7" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="13" cy="17" r="2" fill="currentColor" stroke="none"/></svg>
+    Settings
+  </button>
 </nav>
 
 <script src="app.js"></script>
 </body>
-  </html>
-  
+</html>
