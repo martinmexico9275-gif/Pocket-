@@ -258,6 +258,18 @@ body {
 .wallet-detail-info { flex: 1; min-width: 0; }
 .wallet-detail-name { font-weight: 600; font-size: 0.95rem; }
 .wallet-detail-sub { color: var(--paper-dim); font-size: 0.76rem; margin-top: 1px; }
+.wallet-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--paper-dim);
+  margin-top: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+.wallet-acct .eye { font-size: 0.85rem; opacity: 0.7; }
 .wallet-detail-amount { font-family: var(--mono); font-weight: 700; font-size: 1.05rem; color: var(--gold); text-align: right; }
 .wallet-detail-del {
   background: none; border: none; color: var(--paper-dim);
@@ -612,4 +624,5 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
-}
+    }
+  
