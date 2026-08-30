@@ -252,13 +252,16 @@
 <div class="sheet-backdrop" id="walletBackdrop">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <h3>New wallet</h3>
+    <h3 id="walletSheetTitle">New wallet</h3>
     <label>Icon</label>
     <div class="emoji-picker" id="walletEmojiPicker"></div>
     <label for="walletName">Wallet name</label>
     <input type="text" id="walletName" placeholder="e.g. Bank/Card">
     <label for="walletBalance">Starting balance</label>
     <input type="number" id="walletBalance" inputmode="decimal" placeholder="0.00">
+    <label for="walletAccountNumber">Account number (optional)</label>
+    <input type="text" id="walletAccountNumber" inputmode="numeric" placeholder="e.g. 1234 5678 9012 3456" autocomplete="off">
+    <div class="t-sub" style="margin:-4px 0 12px;">Stored only on this device. Masked on screen — tap it to reveal.</div>
     <div class="sheet-actions">
       <button class="btn btn-ghost" id="walletCancel" style="flex:1;">Cancel</button>
       <button class="btn btn-primary" id="walletSave" style="flex:2;">Save wallet</button>
@@ -288,4 +291,5 @@
 
 <script src="app.js"></script>
 </body>
-</html>
+  </html>
+  
