@@ -491,4 +491,457 @@
     list.innerHTML = state.wallets.map((w) => {
       const count = state.transactions.filter((t) => t.walletId === w.id).length;
       const acctLine = w.accountNumber
-        ? `<div class="wallet-acct" data-reveal="${w.id}"><span class="eye">${revealedWallets.has(w.id) ? "🙈" : "👁️"}</span>${revealedWallets.has(w.
+        ? `<div class="wallet-acct" data-reveal="${w.id}"><span class="eye">${revealedWallets.has(w.id) ? "🙈" : "👁️"}</span>${revealedWallets.has(w.id) ? escapeHtml(w.accountNumber) : maskAccountNumber(w.accountNumber)}</div>`
+        : "";
+      return `
+        <div class="wallet-detail-card" data-id="${w.id}">
+          <div class="wallet-detail-icon">${w.icon}</div>
+          <div class="wallet-detail-info">
+            <div class="wallet-detail-name">${escapeHtml(w.name)}</div>
+            <div class="wallet-detail-sub">${count} transaction${count === 1 ? "" : "s"}</div>
+            ${acctLine}
+          </div>
+          <div class="wallet-detail-amount">${fmt(computeWalletBalance(w.id))}</div>
+          <button class="wallet-detail-del" data-delwallet="${w.id}" aria-label="Delete wallet">✕</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function populateWalletSelects() {
+    const options = state.wallets.map((w) => `<option value="${w.id}">${w.icon} ${escapeHtml(w.name)}</option>`).join("");
+    ["txWallet", "addFundsWallet"].forEach((id) => {
+      const sel = document.getElementById(id);
+      const prev = sel.value;
+      sel.innerHTML = options;
+      if (state.wallets.some((w) => w.id === prev)) sel.value = prev;
+    });
+  }
+
+  function renderSettings() {
+    document.getElementById("currencyInput").value = state.settings.currency;
+    document.getElementById("incomeInput").value = state.settings.monthlyIncome || "";
+    document.getElementById("warnToggle").checked = !!state.settings.warnEnabled;
+    document.getElementById("warnThreshold").value = state.settings.warnThreshold;
+    document.getElementById("themeToggle").checked = state.settings.theme === "light";
+    const sel = document.getElementById("startDay");
+    if (!sel.options.length) {
+      for (let i = 1; i <= 28; i++) {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = ordinal(i);
+        sel.appendChild(opt);
+      }
+    }
+    sel.value = state.settings.startDay;
+  }
+
+  function ordinal(n) {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function populateCategorySelect() {
+    const sel = document.getElementById("txCategory");
+    if (sel.options.length) return;
+    sel.innerHTML = CATEGORIES.map((c) => `<option value="${c}">${catMeta(c).icon} ${c}</option>`).join("");
+  }
+
+  function renderWeekChart() {
+    const svg = document.getElementById("weekChart");
+    const labelsEl = document.getElementById("weekChartLabels");
+    const days = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      days.push(d);
+    }
+    const totals = days.map((d) => {
+      const iso = isoDate(d);
+      return state.transactions
+        .filter((t) => t.type === "expense" && t.date === iso)
+        .reduce((s, t) => s + t.amount, 0);
+    });
+    const max = Math.max(...totals, 1);
+    const barW = 28, gap = (320 - barW * 7) / 8, chartH = 90;
+
+    let bars = "";
+    totals.forEach((val, i) => {
+      const h = Math.max((val / max) * (chartH - 14), val > 0 ? 4 : 0);
+      const x = gap + i * (barW + gap);
+      const y = chartH - h;
+      const isToday = i === 6;
+      bars += `<rect class="chart-bar${isToday ? " today" : ""}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="5"></rect>`;
+    });
+    svg.innerHTML = bars;
+
+    labelsEl.innerHTML = days.map((d) => `<span>${d.toLocaleDateString(undefined, { weekday: "narrow" })}</span>`).join("");
+  }
+
+  function renderAll() {
+    const summary = computeSummary();
+    renderGreeting();
+    renderMonthLabel(summary.period);
+    renderWallets();
+    renderWalletsPage();
+    renderDialTicks();
+    renderDial(summary);
+    renderStats(summary);
+    renderWeekChart();
+    renderCategoryFilter();
+    renderTxList();
+    renderGoals();
+    renderRecurring();
+    renderSettings();
+    populateCategorySelect();
+    populateWalletSelects();
+  }
+
+  // ---------- Tab navigation ----------
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`view-${btn.dataset.view}`).classList.add("active");
+    });
+  });
+
+  // ---------- Add transaction sheet ----------
+  const txBackdrop = document.getElementById("txBackdrop");
+  const segExpense = document.getElementById("segExpense");
+  const segIncome = document.getElementById("segIncome");
+  let currentTxType = "expense";
+
+  document.getElementById("fabAdd").addEventListener("click", () => {
+    document.getElementById("txAmount").value = "";
+    document.getElementById("txNote").value = "";
+    document.getElementById("txDate").value = todayISO();
+    document.getElementById("txRecurring").checked = false;
+    populateCategorySelect();
+    populateWalletSelects();
+    document.getElementById("txCategory").value = CATEGORIES[0];
+    if (defaultWalletId()) document.getElementById("txWallet").value = defaultWalletId();
+    currentTxType = "expense";
+    segExpense.classList.add("active");
+    segIncome.classList.remove("active");
+    txBackdrop.classList.add("show");
+    setTimeout(() => document.getElementById("txAmount").focus(), 50);
+  });
+
+  segExpense.addEventListener("click", () => {
+    currentTxType = "expense";
+    segExpense.classList.add("active");
+    segIncome.classList.remove("active");
+  });
+  segIncome.addEventListener("click", () => {
+    currentTxType = "income";
+    segIncome.classList.add("active");
+    segExpense.classList.remove("active");
+  });
+
+  document.getElementById("txCancel").addEventListener("click", () => txBackdrop.classList.remove("show"));
+  txBackdrop.addEventListener("click", (e) => { if (e.target === txBackdrop) txBackdrop.classList.remove("show"); });
+
+  document.getElementById("txSave").addEventListener("click", () => {
+    const amount = parseFloat(document.getElementById("txAmount").value);
+    if (!amount || amount <= 0) return;
+    const note = document.getElementById("txNote").value.trim();
+    const category = document.getElementById("txCategory").value;
+    const walletId = document.getElementById("txWallet").value || defaultWalletId();
+    const date = document.getElementById("txDate").value || todayISO();
+    const isRecurring = document.getElementById("txRecurring").checked;
+
+    if (isRecurring) {
+      const recId = uid();
+      const day = new Date(date + "T00:00:00").getDate();
+      const periodStartISO = isoDate(currentPeriod().start);
+      state.recurring.push({ id: recId, type: currentTxType, amount, note, category, day, walletId, lastPeriodStart: periodStartISO });
+      state.transactions.push({ id: uid(), type: currentTxType, amount, note, category, date, walletId, recurringId: recId });
+    } else {
+      state.transactions.push({ id: uid(), type: currentTxType, amount, note, category, date, walletId });
+    }
+
+    save();
+    txBackdrop.classList.remove("show");
+    renderAll();
+  });
+
+  document.getElementById("txList").addEventListener("click", (e) => {
+    const delId = e.target.getAttribute("data-del");
+    if (delId) {
+      state.transactions = state.transactions.filter((t) => t.id !== delId);
+      save();
+      renderAll();
+    }
+  });
+
+  document.getElementById("categoryFilter").addEventListener("click", (e) => {
+    const chip = e.target.getAttribute("data-chip");
+    if (chip) {
+      activeCategory = chip;
+      renderCategoryFilter();
+      renderTxList();
+    }
+  });
+
+  document.getElementById("recurringList").addEventListener("click", (e) => {
+    const delId = e.target.getAttribute("data-delrec");
+    if (delId) {
+      state.recurring = state.recurring.filter((r) => r.id !== delId);
+      save();
+      renderAll();
+    }
+  });
+
+  // ---------- Goals ----------
+  const GOAL_EMOJIS = ["🎯", "🏖️", "🏠", "🚗", "🎧", "💻", "✈️", "🎓", "💍", "🐣", "🎁", "🩺"];
+  let selectedGoalEmoji = GOAL_EMOJIS[0];
+
+  function renderGoalEmojiPicker() {
+    const el = document.getElementById("goalEmojiPicker");
+    el.innerHTML = GOAL_EMOJIS.map((e) => `
+      <div class="emoji-opt ${e === selectedGoalEmoji ? "active" : ""}" data-emoji="${e}">${e}</div>
+    `).join("");
+  }
+  document.getElementById("goalEmojiPicker").addEventListener("click", (e) => {
+    const opt = e.target.closest(".emoji-opt");
+    if (!opt) return;
+    selectedGoalEmoji = opt.dataset.emoji;
+    renderGoalEmojiPicker();
+  });
+
+  const goalBackdrop = document.getElementById("goalBackdrop");
+  document.getElementById("newGoalBtn").addEventListener("click", () => {
+    document.getElementById("goalName").value = "";
+    document.getElementById("goalTarget").value = "";
+    selectedGoalEmoji = GOAL_EMOJIS[0];
+    renderGoalEmojiPicker();
+    goalBackdrop.classList.add("show");
+  });
+  document.getElementById("goalCancel").addEventListener("click", () => goalBackdrop.classList.remove("show"));
+  goalBackdrop.addEventListener("click", (e) => { if (e.target === goalBackdrop) goalBackdrop.classList.remove("show"); });
+
+  document.getElementById("goalSave").addEventListener("click", () => {
+    const name = document.getElementById("goalName").value.trim();
+    const target = parseFloat(document.getElementById("goalTarget").value);
+    if (!name || !target || target <= 0) return;
+    state.goals.push({ id: uid(), name, target, saved: 0, icon: selectedGoalEmoji });
+    save();
+    goalBackdrop.classList.remove("show");
+    renderAll();
+  });
+
+  // ---------- Wallets ----------
+  let selectedWalletEmoji = WALLET_ICONS[0];
+  let editingWalletId = null;
+  const walletBackdrop = document.getElementById("walletBackdrop");
+
+  function renderWalletEmojiPicker() {
+    const el = document.getElementById("walletEmojiPicker");
+    el.innerHTML = WALLET_ICONS.map((e) => `
+      <div class="emoji-opt ${e === selectedWalletEmoji ? "active" : ""}" data-emoji="${e}">${e}</div>
+    `).join("");
+  }
+  document.getElementById("walletEmojiPicker").addEventListener("click", (e) => {
+    const opt = e.target.closest(".emoji-opt");
+    if (!opt) return;
+    selectedWalletEmoji = opt.dataset.emoji;
+    renderWalletEmojiPicker();
+  });
+
+  document.getElementById("newWalletBtn").addEventListener("click", () => {
+    editingWalletId = null;
+    document.getElementById("walletSheetTitle").textContent = "New wallet";
+    document.getElementById("walletName").value = "";
+    document.getElementById("walletBalance").value = "";
+    document.getElementById("walletAccountNumber").value = "";
+    selectedWalletEmoji = WALLET_ICONS[0];
+    renderWalletEmojiPicker();
+    walletBackdrop.classList.add("show");
+  });
+  document.getElementById("walletCancel").addEventListener("click", () => walletBackdrop.classList.remove("show"));
+  walletBackdrop.addEventListener("click", (e) => { if (e.target === walletBackdrop) walletBackdrop.classList.remove("show"); });
+
+  document.getElementById("walletSave").addEventListener("click", () => {
+    const name = document.getElementById("walletName").value.trim();
+    const startingBalance = parseFloat(document.getElementById("walletBalance").value) || 0;
+    const accountNumber = document.getElementById("walletAccountNumber").value.trim();
+    if (!name) return;
+
+    if (editingWalletId) {
+      const w = state.wallets.find((x) => x.id === editingWalletId);
+      if (w) {
+        w.name = name;
+        w.icon = selectedWalletEmoji;
+        w.startingBalance = startingBalance;
+        w.accountNumber = accountNumber || undefined;
+      }
+    } else {
+      state.wallets.push({ id: uid(), name, icon: selectedWalletEmoji, startingBalance, accountNumber: accountNumber || undefined });
+    }
+    save();
+    walletBackdrop.classList.remove("show");
+    renderAll();
+  });
+
+  document.getElementById("walletDetailList").addEventListener("click", (e) => {
+    const delId = e.target.getAttribute("data-delwallet");
+    const revealId = e.target.closest("[data-reveal]") ? e.target.closest("[data-reveal]").dataset.reveal : null;
+
+    if (delId) {
+      if (state.wallets.length <= 1) {
+        alert("You need at least one wallet. Add another before deleting this one.");
+        return;
+      }
+      if (!confirm("Delete this wallet? Its transactions will move to your other wallet.")) return;
+      state.wallets = state.wallets.filter((w) => w.id !== delId);
+      const fallbackId = defaultWalletId();
+      state.transactions.forEach((t) => { if (t.walletId === delId) t.walletId = fallbackId; });
+      state.recurring.forEach((r) => { if (r.walletId === delId) r.walletId = fallbackId; });
+      save();
+      renderAll();
+      return;
+    }
+
+    if (revealId) {
+      if (revealedWallets.has(revealId)) revealedWallets.delete(revealId);
+      else revealedWallets.add(revealId);
+      renderWalletsPage();
+      return;
+    }
+
+    // Tapping elsewhere on the card opens it for editing.
+    const card = e.target.closest(".wallet-detail-card");
+    if (card) {
+      const w = state.wallets.find((x) => x.id === card.dataset.id);
+      if (!w) return;
+      editingWalletId = w.id;
+      document.getElementById("walletSheetTitle").textContent = "Edit wallet";
+      document.getElementById("walletName").value = w.name;
+      document.getElementById("walletBalance").value = w.startingBalance || "";
+      document.getElementById("walletAccountNumber").value = w.accountNumber || "";
+      selectedWalletEmoji = w.icon;
+      renderWalletEmojiPicker();
+      walletBackdrop.classList.add("show");
+    }
+  });
+
+  document.getElementById("walletRow").addEventListener("click", () => {
+    document.querySelector('.tab-btn[data-view="wallet"]').click();
+  });
+
+  const addFundsBackdrop = document.getElementById("addFundsBackdrop");
+  let fundingGoalId = null;
+
+  document.getElementById("goalsList").addEventListener("click", (e) => {
+    const fundId = e.target.getAttribute("data-fund");
+    const delId = e.target.getAttribute("data-delgoal");
+    if (fundId) {
+      fundingGoalId = fundId;
+      document.getElementById("addFundsAmount").value = "";
+      populateWalletSelects();
+      if (defaultWalletId()) document.getElementById("addFundsWallet").value = defaultWalletId();
+      addFundsBackdrop.classList.add("show");
+    } else if (delId) {
+      state.goals = state.goals.filter((g) => g.id !== delId);
+      save();
+      renderAll();
+    }
+  });
+
+  document.getElementById("addFundsCancel").addEventListener("click", () => addFundsBackdrop.classList.remove("show"));
+  addFundsBackdrop.addEventListener("click", (e) => { if (e.target === addFundsBackdrop) addFundsBackdrop.classList.remove("show"); });
+
+  function fireConfetti() {
+    const colors = ["#e8b14e", "#2aa198", "#e8735c", "#7CB86A", "#A87CE0"];
+    const count = 24;
+    for (let i = 0; i < count; i++) {
+      const piece = document.createElement("div");
+      piece.className = "confetti-piece";
+      piece.style.left = Math.random() * 100 + "vw";
+      piece.style.background = colors[i % colors.length];
+      const duration = 1.4 + Math.random() * 0.9;
+      piece.style.animationDuration = duration + "s";
+      piece.style.animationDelay = (Math.random() * 0.3) + "s";
+      document.body.appendChild(piece);
+      setTimeout(() => piece.remove(), (duration + 0.3) * 1000);
+    }
+  }
+
+  document.getElementById("addFundsSave").addEventListener("click", () => {
+    const amount = parseFloat(document.getElementById("addFundsAmount").value);
+    if (!amount || amount <= 0 || !fundingGoalId) return;
+    const walletId = document.getElementById("addFundsWallet").value || defaultWalletId();
+    const goal = state.goals.find((g) => g.id === fundingGoalId);
+    if (goal) {
+      const wasComplete = goal.target > 0 && goal.saved >= goal.target;
+      goal.saved += amount;
+      const nowComplete = goal.target > 0 && goal.saved >= goal.target;
+      // Also log it as an expense so it affects the daily allowance honestly.
+      state.transactions.push({ id: uid(), type: "expense", amount, note: `To goal: ${goal.name}`, category: "Other", date: todayISO(), walletId });
+      save();
+      if (!wasComplete && nowComplete) fireConfetti();
+    }
+    addFundsBackdrop.classList.remove("show");
+    renderAll();
+  });
+
+  // ---------- Settings ----------
+  document.getElementById("currencyInput").addEventListener("input", (e) => {
+    state.settings.currency = e.target.value || "£";
+    save(); renderAll();
+  });
+  document.getElementById("incomeInput").addEventListener("input", (e) => {
+    state.settings.monthlyIncome = parseFloat(e.target.value) || 0;
+    save(); renderAll();
+  });
+  document.getElementById("startDay").addEventListener("change", (e) => {
+    state.settings.startDay = parseInt(e.target.value, 10) || 1;
+    save(); renderAll();
+  });
+  document.getElementById("warnToggle").addEventListener("change", (e) => {
+    state.settings.warnEnabled = e.target.checked;
+    save(); renderAll();
+  });
+  document.getElementById("warnThreshold").addEventListener("input", (e) => {
+    state.settings.warnThreshold = parseFloat(e.target.value) || 0;
+    save(); renderAll();
+  });
+  document.getElementById("themeToggle").addEventListener("change", (e) => {
+    state.settings.theme = e.target.checked ? "light" : "dark";
+    save(); applyTheme();
+  });
+
+  document.getElementById("exportBtn").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pockets-backup-${todayISO()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    if (confirm("This erases all transactions, goals and settings on this device. Continue?")) {
+      state = defaultState();
+      save();
+      renderAll();
+    }
+  });
+
+  // ---------- Service worker ----------
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((err) => console.warn("SW registration failed", err));
+    });
+  }
+
+  applyTheme();
+  processRecurring();
+  renderAll();
+})(); 
