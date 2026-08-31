@@ -18,6 +18,17 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<div id="lockOverlay" class="lock-overlay">
+  <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gold);">
+    <path d="M12 11v2M8 11a4 4 0 118 0v2a7 7 0 01-1.5 4.3M6 13a6 6 0 0112 0v1a9 9 0 01-2 5.6M4 13a8 8 0 0116 0"/>
+  </svg>
+  <div class="lock-title">Pockets is locked</div>
+  <div class="lock-sub" id="lockSub">Use your fingerprint or face to continue</div>
+  <button class="btn btn-primary" id="unlockBtn" style="margin-top:18px;">Unlock</button>
+  <button class="lock-reset" id="lockResetBtn">Can't unlock? Reset app lock</button>
+</div>
+
 <div id="app">
 
   <div class="topbar">
@@ -145,6 +156,18 @@
       </div>
       <label class="switch">
         <input type="checkbox" id="themeToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="section-head"><h2>Security</h2></div>
+    <div class="toggle-row">
+      <div>
+        <div class="t-label">App lock</div>
+        <div class="t-sub" id="appLockSub">Require fingerprint/Face ID to open Pockets</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="appLockToggle">
         <span class="slider"></span>
       </label>
     </div>
@@ -291,5 +314,5 @@
 
 <script src="app.js"></script>
 </body>
-  </html>
+      </html>
   
