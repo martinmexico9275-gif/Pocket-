@@ -651,5 +651,4 @@ input:checked + .slider::before { transform: translateX(18px); background: var(-
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
-                                                                       }
-  
+}
